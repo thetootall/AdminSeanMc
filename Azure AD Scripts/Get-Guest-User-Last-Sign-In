@@ -1,14 +1,20 @@
 <#
     Author: Sean McAvinue
     Contact: Sean@seanmcavinue., Twitter: @Sean_McAvinue
+    Update by Chris Blackburn, http://github.com/thetootall
     .SYNOPSIS
     Gets guest users last sign in action from AAD logs and exports user and signin list to CSV in C:\temp
-
+    https://seanmcavinue.net/2020/12/11/quick-and-easy-powershell-report-for-azure-ad-guest-user-last-sign-in/
 
 #>
-azureadpreview\Connect-azuread
+try 
+{ $var = Get-AzureADTenantDetail } 
+catch [Microsoft.Open.Azure.AD.CommonLibrary.AadNeedAuthenticationException] 
+{ Write-Host "You're not connected - authenticating to Azure AD..." -ForegroundColor Black -BackgroundColor Yellow
+Connect-AzureAD
+}
 ##Get all guest users
-$guests = Get-AzureADUser -Filter "userType eq 'Guest'" -All $true 
+$guests = Get-AzureADUser -Filter "userType eq 'Guest'" -All $true | Sort-object Displayname
 
 ##Loop Guest Users
 foreach ($guest in $guests) {
@@ -16,28 +22,33 @@ foreach ($guest in $guests) {
     ##Get logs filtered by current guest
     $logs = Get-AzureADAuditSignInLogs -Filter "userprincipalname eq `'$($guest.mail)'" -ALL:$true 
 
-    ##Check if multiple entries and tidy results
-    if ($logs -is [array]) {
-        $timestamp = $logs[0].createddatetime
-    }
-    else {
         $timestamp = $logs.createddatetime
-    }
+        If ($timestamp -eq $NULL){
+        $timestamp = "BLANK"}
+        Else
+        {$timestamp = $logs[0].createddatetime}
 
     ##Build Output Object
+    $exuser = $guest.extensionproperty
     $object = [PSCustomObject]@{
 
         Userprincipalname = $guest.userprincipalname
-        Mail              = $guest.mail
-        LastSignin        = $timestamp
-        AppsUsed          = (($logs.resourcedisplayname | select -Unique) -join (';'))
+        UserState = $guest.UserState
+        Enabled = $guest.AccountEnabled
+        Name = $guest.DisplayName
+        Mail = $guest.mail
+        CreatedDate = $exuser.createdDateTime
+        LastSignin = $timestamp
+        AppsUsed = (($logs.resourcedisplayname | select -Unique) -join (';'))
     }
 
     ##Export Results
-    $object | export-csv C:\temp\GuestUserSignins.csv -NoTypeInformation -Append
+    Write-host $object
+    $object | export-csv AndersenGuestUserSignins.csv -NoTypeInformation -Append
 
-    Remove-Variable object
+    Clear-Variable object
+    Clear-Variable logs
+    Clear-Variable timestamp
+    Clear-Variable exuser
+
 }
-
-
-
